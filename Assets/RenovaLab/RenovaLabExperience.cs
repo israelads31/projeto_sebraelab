@@ -8,6 +8,7 @@ using CommonUsages = UnityEngine.XR.CommonUsages;
 using XRDevice = UnityEngine.XR.InputDevice;
 using UnityEngine.XR.Interaction.Toolkit.Locomotion;
 using System.Collections.Generic;
+using UnityEngine.Rendering.Universal;
 
 namespace RenovaLab
 {
@@ -79,7 +80,7 @@ namespace RenovaLab
                 var tracking = eyes.GetComponent<TrackedPoseDriver>();
                 eyes.transform.SetParent(trackingParent, false);
                 eyes.transform.SetLocalPositionAndRotation(trackingPosition, trackingRotation);
-                eyes.stereoTargetEye = StereoTargetEyeMask.Both;
+                eyes.GetUniversalAdditionalCameraData().allowXRRendering = true;
                 eyes.ResetProjectionMatrix();
                 foreach (var component in suspendedLocomotion) component.enabled = true;
                 suspendedLocomotion.Clear();
@@ -131,7 +132,7 @@ namespace RenovaLab
             }
             eyes.transform.SetParent(rig, false);
             eyes.transform.SetLocalPositionAndRotation(new Vector3(0, 1.65f, 0), Quaternion.identity);
-            eyes.stereoTargetEye = StereoTargetEyeMask.None;
+            eyes.GetUniversalAdditionalCameraData().allowXRRendering = false;
             eyes.nearClipPlane = .03f;
             eyes.ResetProjectionMatrix();
             body.height = 1.65f;

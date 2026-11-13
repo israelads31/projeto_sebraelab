@@ -6,6 +6,8 @@ using UnityEngine.XR;
 using UnityEngine.InputSystem.XR;
 using CommonUsages = UnityEngine.XR.CommonUsages;
 using XRDevice = UnityEngine.XR.InputDevice;
+using UnityEngine.XR.Interaction.Toolkit.Locomotion;
+using System.Collections.Generic;
 
 namespace RenovaLab
 {
@@ -38,14 +40,17 @@ namespace RenovaLab
         bool restartWasHeld;
         bool desktop;
         float pitch;
+        Transform trackingParent;
+        Vector3 trackingPosition;
+        Quaternion trackingRotation;
+        readonly List<Behaviour> suspendedLocomotion = new List<Behaviour>();
 
         void Start()
         {
             desktop = Application.isEditor && !XRSettings.isDeviceActive;
             if (desktop)
             {
-                var tracking = eyes.GetComponent<TrackedPoseDriver>();
-                if (tracking) tracking.enabled = false;
+                ConfigureDesktop();
             }
 
             foreach (var station in stations) station.Prepare();
@@ -72,6 +77,12 @@ namespace RenovaLab
             {
                 desktop = false;
                 var tracking = eyes.GetComponent<TrackedPoseDriver>();
+                eyes.transform.SetParent(trackingParent, false);
+                eyes.transform.SetLocalPositionAndRotation(trackingPosition, trackingRotation);
+                eyes.stereoTargetEye = StereoTargetEyeMask.Both;
+                eyes.ResetProjectionMatrix();
+                foreach (var component in suspendedLocomotion) component.enabled = true;
+                suspendedLocomotion.Clear();
                 if (tracking) tracking.enabled = true;
             }
 
@@ -93,7 +104,7 @@ namespace RenovaLab
                 Restart();
 
             Ray ray = desktop
-                ? eyes.ScreenPointToRay(Mouse.current?.position.ReadValue() ?? new Vector2(Screen.width / 2f, Screen.height / 2f))
+                ? DesktopRay()
                 : new Ray(rightHand.position, rightHand.forward);
             ProcessRay(ray, desktop || tracked, trigger, Time.deltaTime);
             toolButtonWasHeld = nextTool;
@@ -103,14 +114,52 @@ namespace RenovaLab
         static bool Held(XRDevice device, InputFeatureUsage<bool> usage) =>
             device.TryGetFeatureValue(usage, out bool pressed) && pressed;
 
+        void ConfigureDesktop()
+        {
+            var tracking = eyes.GetComponent<TrackedPoseDriver>();
+            if (tracking) tracking.enabled = false;
+            trackingParent = eyes.transform.parent;
+            trackingPosition = eyes.transform.localPosition;
+            trackingRotation = eyes.transform.localRotation;
+            foreach (var component in rig.GetComponentsInChildren<Behaviour>(true))
+            {
+                if (component.enabled && (component is LocomotionProvider || component is XRBodyTransformer))
+                {
+                    suspendedLocomotion.Add(component);
+                    component.enabled = false;
+                }
+            }
+            eyes.transform.SetParent(rig, false);
+            eyes.transform.SetLocalPositionAndRotation(new Vector3(0, 1.65f, 0), Quaternion.identity);
+            eyes.stereoTargetEye = StereoTargetEyeMask.None;
+            eyes.nearClipPlane = .03f;
+            eyes.ResetProjectionMatrix();
+            body.height = 1.65f;
+            body.center = new Vector3(0, .85f, 0);
+        }
+
+        static bool IsFinite(Vector2 value) =>
+            float.IsFinite(value.x) && float.IsFinite(value.y);
+
+        Ray DesktopRay()
+        {
+            Rect viewport = eyes.pixelRect;
+            Vector2 position = Mouse.current?.position.ReadValue() ?? viewport.center;
+            if (!IsFinite(position) || !viewport.Contains(position)) position = viewport.center;
+            return eyes.ScreenPointToRay(position);
+        }
+
         void MoveOnDesktop()
         {
             if (Mouse.current?.rightButton.isPressed == true)
             {
                 Vector2 delta = Mouse.current.delta.ReadValue() * .15f;
-                rig.Rotate(0, delta.x, 0);
-                pitch = Mathf.Clamp(pitch - delta.y, -70, 70);
-                eyes.transform.localRotation = Quaternion.Euler(pitch, 0, 0);
+                if (IsFinite(delta))
+                {
+                    rig.Rotate(0, delta.x, 0);
+                    pitch = Mathf.Clamp(pitch - delta.y, -70, 70);
+                    eyes.transform.localRotation = Quaternion.Euler(pitch, 0, 0);
+                }
             }
             var keys = Keyboard.current;
             if (keys == null) return;
